@@ -1,0 +1,6 @@
+{
+  "name": "FOPOS - Felsefe Öğretmenleri Platformu",
+  "description": "Türkiye Yüzyılı Maarif Modeli (TYMM) Felsefe Dersi Öğretim Programı ile uyumlu; Sokratik diyalog, düşünce deneyleri laboratuvarı, argüman haritalama, P4C soruşturma atölyesi ve resmî ölçme rubrikleri (Ek 1 & 2).",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
