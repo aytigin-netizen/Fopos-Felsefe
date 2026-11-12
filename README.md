@@ -1,6 +1,6 @@
 # FOPOS — Felsefe Öğretmenleri Platformu (TYMM 2026 Uyumlu)
 
-![FOPOS Logo](public/assets/images/fopos_hero_agora_1794482207191.jpg)
+![FOPOS Logo](/assets/images/fopos_hero_agora_1794482207191.jpg)
 
 **FOPOS**, felsefe öğretmenleri ve lise öğrencileri için geliştirilmiş; **T.C. Millî Eğitim Bakanlığı Türkiye Yüzyılı Maarif Modeli (TYMM 2026)** Felsefe Dersi Öğretim Programı ile %100 uyumlu, etkileşimli düşünce laboratuvarı ve öğretim platformudur.
 

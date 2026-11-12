@@ -32,7 +32,7 @@ export default function App() {
         <section className="relative overflow-hidden rounded-2xl bg-stone-900 text-stone-100 border border-stone-800 shadow-sm">
           <div className="absolute inset-0">
             <img
-              src="/src/assets/images/fopos_hero_agora_1794482207191.jpg"
+              src="/assets/images/fopos_hero_agora_1794482207191.jpg"
               alt="Atina Agorası ve Felsefe Akademisi"
               referrerPolicy="no-referrer"
               className="w-full h-full object-cover opacity-25"

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { TYMM_CURRICULUM_TOPICS } from '../data/curriculumData';
 import { CurriculumTopic } from '../types/philosophy';
 import {
@@ -8,6 +8,9 @@ import {
   HelpCircle,
   Copy,
   Check,
+  Save,
+  Trash2,
+  FolderOpen,
   Printer,
   ChevronRight,
   Target,
@@ -18,12 +21,67 @@ import {
   ShieldCheck
 } from 'lucide-react';
 
+interface LessonPlanDraft {
+  id: string;
+  savedAt: string;
+  topicId: string;
+  topicTitle: string;
+  title: string;
+  plan: any;
+}
+
+const DRAFTS_STORAGE_KEY = 'fopos.lesson-plan-drafts';
+
 export const CurriculumStudio: React.FC = () => {
   const [selectedGrade, setSelectedGrade] = useState<'all' | '10. Sınıf' | '11. Sınıf'>('all');
   const [activeTopic, setActiveTopic] = useState<CurriculumTopic>(TYMM_CURRICULUM_TOPICS[0]);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [generatedPlan, setGeneratedPlan] = useState<any>(null);
   const [copied, setCopied] = useState<boolean>(false);
+  const [savedDrafts, setSavedDrafts] = useState<LessonPlanDraft[]>([]);
+
+  useEffect(() => {
+    try {
+      const storedDrafts = window.localStorage.getItem(DRAFTS_STORAGE_KEY);
+      if (storedDrafts) {
+        const parsedDrafts = JSON.parse(storedDrafts);
+        if (Array.isArray(parsedDrafts)) setSavedDrafts(parsedDrafts);
+      }
+    } catch (error) {
+      console.warn('Ders planı taslakları yüklenemedi:', error);
+    }
+  }, []);
+
+  const persistDrafts = (drafts: LessonPlanDraft[]) => {
+    setSavedDrafts(drafts);
+    window.localStorage.setItem(DRAFTS_STORAGE_KEY, JSON.stringify(drafts));
+  };
+
+  const handleSaveDraft = () => {
+    if (!generatedPlan) return;
+    const draft: LessonPlanDraft = {
+      id: `${activeTopic.id}-${Date.now()}`,
+      savedAt: new Date().toISOString(),
+      topicId: activeTopic.id,
+      topicTitle: `${activeTopic.unit}: ${activeTopic.title}`,
+      title: generatedPlan.title || activeTopic.title,
+      plan: generatedPlan
+    };
+    persistDrafts([draft, ...savedDrafts].slice(0, 20));
+  };
+
+  const handleLoadDraft = (draft: LessonPlanDraft) => {
+    const topic = TYMM_CURRICULUM_TOPICS.find((item) => item.id === draft.topicId);
+    if (topic) {
+      setActiveTopic(topic);
+      setSelectedGrade(topic.grade);
+    }
+    setGeneratedPlan(draft.plan);
+  };
+
+  const handleDeleteDraft = (draftId: string) => {
+    persistDrafts(savedDrafts.filter((draft) => draft.id !== draftId));
+  };
 
   const filteredTopics =
     selectedGrade === 'all'
@@ -298,6 +356,13 @@ ${generatedPlan.reflectionPrompt}`;
 
                 <div className="flex items-center gap-2">
                   <button
+                    onClick={handleSaveDraft}
+                    className="flex items-center gap-1 px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-stone-950 text-xs rounded transition-colors cursor-pointer"
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    Taslağı Kaydet
+                  </button>
+                  <button
                     onClick={handleCopyPlan}
                     className="flex items-center gap-1 px-2.5 py-1 bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs rounded transition-colors cursor-pointer"
                   >
@@ -340,6 +405,46 @@ ${generatedPlan.reflectionPrompt}`;
                     ))}
                   </ul>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {savedDrafts.length > 0 && (
+            <div className="p-5 bg-white rounded-xl border border-stone-200 shadow-xs space-y-3">
+              <div className="flex items-center justify-between border-b border-stone-100 pb-3">
+                <span className="text-xs font-bold text-stone-900 uppercase tracking-wider flex items-center gap-1.5">
+                  <FolderOpen className="w-4 h-4 text-amber-600" />
+                  Kayıtlı Ders Planı Taslakları
+                </span>
+                <span className="text-[11px] text-stone-500">Bu cihazda saklanır</span>
+              </div>
+              <div className="space-y-2">
+                {savedDrafts.map((draft) => (
+                  <div key={draft.id} className="flex items-center justify-between gap-3 rounded-lg border border-stone-200 bg-stone-50 px-3 py-2.5">
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-semibold text-stone-800">{draft.title}</p>
+                      <p className="truncate text-[11px] text-stone-500">
+                        {draft.topicTitle} · {new Date(draft.savedAt).toLocaleDateString('tr-TR')}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      <button
+                        onClick={() => handleLoadDraft(draft)}
+                        className="flex items-center gap-1 rounded bg-stone-900 px-2 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-stone-700 cursor-pointer"
+                      >
+                        <FolderOpen className="w-3 h-3" />
+                        Aç
+                      </button>
+                      <button
+                        onClick={() => handleDeleteDraft(draft.id)}
+                        title="Taslağı sil"
+                        className="rounded p-1 text-stone-400 transition-colors hover:bg-rose-50 hover:text-rose-600 cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           )}
