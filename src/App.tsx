@@ -9,12 +9,16 @@ import { ConceptArena } from './components/ConceptArena';
 import { TymmRubrics } from './components/TymmRubrics';
 import { ClassroomPresentationModal } from './components/ClassroomPresentationModal';
 import { SmartboardGuideModal } from './components/SmartboardGuideModal';
+import { StudentJoinView } from './components/StudentJoinView';
 import { Compass, Sparkles, BookOpen, MonitorPlay, MessageSquare, Layers, Award, QrCode } from 'lucide-react';
 
 export default function App() {
+  const joinMatch = typeof window !== 'undefined' ? window.location.pathname.match(/^\/join\/([A-Za-z0-9]+)$/) : null;
   const [activeTab, setActiveTab] = useState<TabType>('experiments');
   const [isClassroomModeOpen, setIsClassroomModeOpen] = useState<boolean>(false);
   const [isGuideOpen, setIsGuideOpen] = useState<boolean>(false);
+
+  if (joinMatch) return <StudentJoinView sessionCode={joinMatch[1]} />;
 
   return (
     <div className="min-h-screen bg-stone-50 text-stone-900 flex flex-col font-sans">

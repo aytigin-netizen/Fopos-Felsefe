@@ -8,6 +8,12 @@ interface ClassroomPresentationModalProps {
   onClose: () => void;
 }
 
+interface LiveClassroomSession {
+  code: string;
+  joinUrl: string;
+  teacherToken: string;
+}
+
 export const ClassroomPresentationModal: React.FC<ClassroomPresentationModalProps> = ({
   isOpen,
   onClose,
@@ -19,18 +25,50 @@ export const ClassroomPresentationModal: React.FC<ClassroomPresentationModalProp
   const [votesB, setVotesB] = useState<number>(11);
   const [showQR, setShowQR] = useState<boolean>(false);
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
-
-  const sharedUrl = 'https://ais-pre-odhfkaastbz2dzrsek53x6-445302990897.europe-west2.run.app';
+  const [liveSession, setLiveSession] = useState<LiveClassroomSession | null>(null);
+  const [sessionLoading, setSessionLoading] = useState(false);
+  const [sessionError, setSessionError] = useState('');
 
   useEffect(() => {
-    QRCode.toDataURL(sharedUrl, {
+    if (!liveSession?.joinUrl) {
+      setQrDataUrl('');
+      return;
+    }
+    QRCode.toDataURL(liveSession.joinUrl, {
       width: 200,
       margin: 1.5,
       color: { dark: '#1c1917', light: '#fef3c7' },
     }).then(setQrDataUrl).catch(console.error);
-  }, []);
+  }, [liveSession?.joinUrl]);
 
   const exp = THOUGHT_EXPERIMENTS[selectedExpIdx];
+
+  const startLiveSession = async () => {
+    setSessionLoading(true);
+    setSessionError('');
+    try {
+      const response = await fetch('/api/classroom/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          experimentId: exp.id,
+          question: exp.discussionQuestions[0],
+          options: [
+            { id: 'a', label: '1. Seçenek (Faydacı / Eylem)' },
+            { id: 'b', label: '2. Seçenek (Kantçı / İlke)' },
+          ],
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error?.message || 'Sınıf oturumu başlatılamadı.');
+      setLiveSession({ code: data.session.code, joinUrl: data.joinUrl, teacherToken: data.teacherToken });
+      setShowQR(true);
+    } catch (error) {
+      setSessionError(error instanceof Error ? error.message : 'Sınıf oturumu başlatılamadı.');
+    } finally {
+      setSessionLoading(false);
+    }
+  };
 
   useEffect(() => {
     let interval: any = null;
@@ -119,21 +157,33 @@ export const ClassroomPresentationModal: React.FC<ClassroomPresentationModalProp
           {showQR && (
             <div className="absolute right-0 top-12 z-50 bg-stone-900 border border-stone-700 p-4 rounded-xl shadow-2xl flex flex-col items-center gap-3 w-64 text-center">
               <span className="text-xs font-bold text-amber-300">Öğrenciler İçin Hızlı QR</span>
-              {qrDataUrl && (
+              {qrDataUrl ? (
                 <img
                   src={qrDataUrl}
-                  alt="Sınıf QR"
+                  alt={`Sınıf oturumu ${liveSession?.code} QR kodu`}
                   className="w-40 h-40 rounded-lg border border-amber-400/30"
                 />
+              ) : (
+                <div className="flex h-40 w-40 items-center justify-center rounded-lg border border-dashed border-stone-700 text-center text-xs text-stone-500">
+                  Önce gerçek sınıf oturumunu başlatın
+                </div>
               )}
               <p className="text-[11px] text-stone-400 leading-tight">
-                Öğrenciler telefonlarından kamerayla okutarak anında soru ve deneylere erişebilir.
+                {liveSession ? `Oturum kodu: ${liveSession.code}` : 'QR kod, aktif oturum başladıktan sonra oluşturulur.'}
               </p>
+              {!liveSession && (
+                <button
+                  onClick={startLiveSession}
+                  disabled={sessionLoading}
+                  className="w-full rounded bg-amber-500 py-1.5 text-xs font-bold text-stone-950 transition-colors hover:bg-amber-400 disabled:opacity-50 cursor-pointer"
+                >
+                  {sessionLoading ? 'Oturum açılıyor...' : 'Gerçek Sınıf Oturumu Başlat'}
+                </button>
+              )}
+              {sessionError && <p className="text-[11px] text-rose-300">{sessionError}</p>}
               <button
-                onClick={() => {
-                  navigator.clipboard.writeText(sharedUrl);
-                  alert('Bağlantı kopyalandı!');
-                }}
+                onClick={() => liveSession && navigator.clipboard.writeText(liveSession.joinUrl)}
+                disabled={!liveSession}
                 className="w-full py-1.5 bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs rounded font-medium cursor-pointer"
               >
                 Linki Kopyala

@@ -3,6 +3,10 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { GoogleGenAI } from '@google/genai';
+import {
+  ClassroomStoreError,
+  MemoryClassroomSessionStore,
+} from './server/classroomStore';
 
 dotenv.config();
 
@@ -11,11 +15,98 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+const classroomStore = new MemoryClassroomSessionStore();
 
 app.use(express.json({ limit: '256kb' }));
 
 app.get('/health', (_req: Request, res: Response) => {
   res.status(200).json({ status: 'ok', service: 'fopos' });
+});
+
+const sendClassroomError = (res: Response, error: unknown) => {
+  if (error instanceof ClassroomStoreError) {
+    return res.status(error.statusCode).json({
+      error: { code: error.code, message: error.message },
+    });
+  }
+  console.error('Classroom API error:', error);
+  return res.status(500).json({
+    error: { code: 'CLASSROOM_INTERNAL_ERROR', message: 'Sınıf oturumu işlemi tamamlanamadı.' },
+  });
+};
+
+app.post('/api/classroom/sessions', (req: Request, res: Response) => {
+  try {
+    const { experimentId, question, options } = req.body || {};
+    if (typeof experimentId !== 'string' || experimentId.length > 80) {
+      throw new ClassroomStoreError('INVALID_EXPERIMENT', 'Geçerli bir düşünce deneyi seçilmelidir.');
+    }
+    if (typeof question !== 'string' || question.trim().length < 5 || question.length > 500) {
+      throw new ClassroomStoreError('INVALID_QUESTION', 'Oylama sorusu 5 ile 500 karakter arasında olmalıdır.');
+    }
+    if (!Array.isArray(options) || options.length < 2 || options.length > 4) {
+      throw new ClassroomStoreError('INVALID_OPTIONS', 'Oylama iki ile dört seçenek arasında olmalıdır.');
+    }
+    const normalizedOptions = options.map((option: unknown, index: number) => {
+      const item = option as { id?: unknown; label?: unknown };
+      if (typeof item.id !== 'string' || typeof item.label !== 'string' || item.label.trim().length === 0 || item.label.length > 200) {
+        throw new ClassroomStoreError('INVALID_OPTION', `Oylama seçeneği ${index + 1} geçersiz.`);
+      }
+      return { id: item.id.trim().slice(0, 40), label: item.label.trim() };
+    });
+    const uniqueIds = new Set(normalizedOptions.map((option) => option.id));
+    if (uniqueIds.size !== normalizedOptions.length) {
+      throw new ClassroomStoreError('DUPLICATE_OPTION', 'Oylama seçenekleri benzersiz olmalıdır.');
+    }
+
+    const { session, teacherToken } = classroomStore.createSession({
+      experimentId: experimentId.trim(),
+      question: question.trim(),
+      options: normalizedOptions,
+    });
+    const joinUrl = `${req.protocol}://${req.get('host')}/join/${session.code}`;
+    return res.status(201).json({ session, teacherToken, joinUrl });
+  } catch (error) {
+    return sendClassroomError(res, error);
+  }
+});
+
+app.get('/api/classroom/join/:code', (req: Request, res: Response) => {
+  try {
+    return res.json({ session: classroomStore.getPublicSession(req.params.code) });
+  } catch (error) {
+    return sendClassroomError(res, error);
+  }
+});
+
+app.post('/api/classroom/sessions/:code/participants', (req: Request, res: Response) => {
+  try {
+    const result = classroomStore.joinSession(req.params.code);
+    return res.status(201).json(result);
+  } catch (error) {
+    return sendClassroomError(res, error);
+  }
+});
+
+app.post('/api/classroom/sessions/:code/votes', (req: Request, res: Response) => {
+  try {
+    const { participantToken, roundId, optionId } = req.body || {};
+    if (typeof participantToken !== 'string' || participantToken.length > 200) {
+      throw new ClassroomStoreError('INVALID_PARTICIPANT_TOKEN', 'Katılım anahtarı geçersiz.', 401);
+    }
+    if (typeof roundId !== 'string' || typeof optionId !== 'string') {
+      throw new ClassroomStoreError('INVALID_VOTE', 'Oy isteği eksik veya geçersiz.');
+    }
+    const result = classroomStore.castVote({
+      code: req.params.code,
+      participantToken,
+      roundId,
+      optionId,
+    });
+    return res.status(201).json(result);
+  } catch (error) {
+    return sendClassroomError(res, error);
+  }
 });
 
 // Initialize Gemini SDK with User-Agent header as required
