@@ -65,16 +65,21 @@ export const ArgumentMapper: React.FC = () => {
     detectedFallacies: string[];
     strengtheningTips: string[];
     counterCounterStrategy: string;
+    source?: 'gemini' | 'fallback';
+    fallbackReason?: string;
   } | null>(null);
   const [analyzing, setAnalyzing] = useState<boolean>(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
 
   const handleSelectTemplate = (key: string) => {
     setActiveTemplateKey(key);
     setBlocks(TEMPLATES[key].blocks);
     setAnalysisResult(null);
+    setAnalysisError(null);
   };
 
   const handleAddBlock = (type: 'premise' | 'counter' | 'rebuttal') => {
+    if (blocks.length >= 16) return;
     const labels: Record<string, string> = {
       premise: `Öncül ${blocks.filter((b) => b.type === 'premise').length + 1}`,
       counter: 'Yeni Karşı Argüman (İtiraz)',
@@ -92,7 +97,7 @@ export const ArgumentMapper: React.FC = () => {
   };
 
   const handleUpdateText = (id: string, text: string) => {
-    setBlocks((prev) => prev.map((b) => (b.id === id ? { ...b, text } : b)));
+    setBlocks((prev) => prev.map((b) => (b.id === id ? { ...b, text: text.slice(0, 500) } : b)));
   };
 
   const handleDeleteBlock = (id: string) => {
@@ -101,10 +106,11 @@ export const ArgumentMapper: React.FC = () => {
 
   const handleAnalyze = async () => {
     setAnalyzing(true);
+    setAnalysisError(null);
     try {
       const claimBlock = blocks.find((b) => b.type === 'claim')?.text || '';
-      const premises = blocks.filter((b) => b.type === 'premise').map((b) => b.text);
-      const counterArguments = blocks.filter((b) => b.type === 'counter').map((b) => b.text);
+      const premises = blocks.filter((b) => b.type === 'premise').map((b) => b.text).filter(Boolean).slice(0, 10);
+      const counterArguments = blocks.filter((b) => b.type === 'counter').map((b) => b.text).filter(Boolean).slice(0, 10);
 
       const res = await fetch('/api/analyze-argument', {
         method: 'POST',
@@ -113,9 +119,14 @@ export const ArgumentMapper: React.FC = () => {
       });
 
       const data = await res.json();
+      if (!res.ok) {
+        setAnalysisError(data.error || 'Mantıksal analiz tamamlanamadı.');
+        return;
+      }
       setAnalysisResult(data);
     } catch (err) {
       console.error(err);
+      setAnalysisError('Sunucuya bağlanılamadı. Lütfen tekrar deneyin.');
     } finally {
       setAnalyzing(false);
     }
@@ -247,6 +258,7 @@ export const ArgumentMapper: React.FC = () => {
 
                   <textarea
                     rows={2}
+                    maxLength={500}
                     value={block.text}
                     onChange={(e) => handleUpdateText(block.id, e.target.value)}
                     placeholder="Argüman önermesini buraya yazın..."
@@ -287,16 +299,46 @@ export const ArgumentMapper: React.FC = () => {
 
         {/* Right Analysis & Logical Rules Deck (Col 9-12) */}
         <div className="lg:col-span-4 space-y-6">
+          {analysisError && (
+            <div className="p-4 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+              <span>{analysisError}</span>
+            </div>
+          )}
+
           {/* Analysis Results Box */}
           {analysisResult ? (
             <div className="p-5 bg-white rounded-xl border border-stone-200 shadow-xs space-y-4">
-              <div className="flex items-center justify-between border-b border-stone-100 pb-3">
-                <span className="text-xs font-bold text-stone-900 uppercase tracking-wider">
-                  Mantıksal Analiz Raporu
-                </span>
-                <span className="px-2.5 py-1 bg-amber-100 text-amber-900 text-xs font-bold rounded">
-                  Güç Puanı: {analysisResult.strengthScore} / 100
-                </span>
+              <div className="border-b border-stone-100 pb-3 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-stone-900 uppercase tracking-wider">
+                    Mantıksal Analiz Raporu
+                  </span>
+                  <span className="px-2.5 py-1 bg-amber-100 text-amber-900 text-xs font-bold rounded">
+                    Güç Puanı: {analysisResult.strengthScore} / 100
+                  </span>
+                </div>
+                {analysisResult.source && (
+                  <div className="pt-1">
+                    {analysisResult.source === 'gemini' ? (
+                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] font-mono font-semibold">
+                        <Sparkles className="w-3 h-3 text-emerald-600" />
+                        Kaynak: Gemini Canlı Analiz
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-800 text-[11px] font-mono font-semibold">
+                        <AlertTriangle className="w-3 h-3 text-amber-600" />
+                        Kaynak: Yerel Yedek Analiz (
+                        {analysisResult.fallbackReason === 'timeout'
+                          ? 'Zaman aşımı'
+                          : analysisResult.fallbackReason === 'api_error'
+                          ? 'API hatası'
+                          : 'Çevrimdışı'}
+                        )
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="space-y-3 text-xs">

@@ -60,6 +60,7 @@ export const SocraticArena: React.FC = () => {
   const [topic, setTopic] = useState<string>('Ahlak ve Adalet');
   const [inputMessage, setInputMessage] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const [messages, setMessages] = useState<SocraticMessage[]>([
     {
@@ -71,18 +72,21 @@ export const SocraticArena: React.FC = () => {
   ]);
 
   const handleSendMessage = async (customText?: string) => {
-    const textToSend = customText || inputMessage;
-    if (!textToSend.trim() || loading) return;
+    const textToSend = (customText || inputMessage).trim();
+    if (!textToSend || loading) return;
+
+    setErrorMsg(null);
+    const trimmedMessage = textToSend.slice(0, 800);
 
     const userMsg: SocraticMessage = {
       id: Date.now().toString(),
       sender: 'user',
-      text: textToSend,
+      text: trimmedMessage,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
 
     setMessages((prev) => [...prev, userMsg]);
-    setInputMessage('');
+    if (!customText) setInputMessage('');
     setLoading(true);
 
     try {
@@ -92,30 +96,29 @@ export const SocraticArena: React.FC = () => {
         body: JSON.stringify({
           philosopher: selectedPhilosopher.id,
           topic,
-          userMessage: textToSend,
+          userMessage: trimmedMessage,
           history: messages.slice(-5)
         })
       });
 
       const data = await response.json();
+      if (!response.ok) {
+        setErrorMsg(data.error || 'Diyalog yanıtı alınırken bir hata oluştu.');
+        return;
+      }
+
       const botMsg: SocraticMessage = {
         id: (Date.now() + 1).toString(),
         sender: 'philosopher',
         text: data.reply || 'Düşüncenin derinliği bir soruyla başlar. Bu iddiayı hangi mantıksal öncüle dayandırıyorsun?',
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        source: data.source,
+        fallbackReason: data.fallbackReason
       };
       setMessages((prev) => [...prev, botMsg]);
     } catch (err) {
       console.error(err);
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: (Date.now() + 1).toString(),
-          sender: 'philosopher',
-          text: 'Bu iddian çok iddialı görünüyor. Peki aksi bir örnek ortaya koyarsam düşünceni değiştirmeye hazır mısın?',
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        }
-      ]);
+      setErrorMsg('Sunucuya bağlanılamadı. Lütfen bağlantınızı kontrol edin.');
     } finally {
       setLoading(false);
     }
@@ -214,7 +217,43 @@ export const SocraticArena: React.FC = () => {
                       <span className="font-semibold">
                         {isPhilosopher ? selectedPhilosopher.name : 'Öğrenci / Savunucu'}
                       </span>
-                      <span>{msg.timestamp}</span>
+                      <div className="flex items-center gap-2">
+                        {isPhilosopher && msg.source && (
+                          <span
+                            title={
+                              msg.source === 'gemini'
+                                ? 'Yanıt canlı Gemini yapay zekâ modeli tarafından üretildi'
+                                : 'Yanıt yerel yedek şablondan sağlandı'
+                            }
+                            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border font-mono font-semibold ${
+                              msg.source === 'gemini'
+                                ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                                : 'bg-amber-50 border-amber-200 text-amber-800'
+                            }`}
+                          >
+                            {msg.source === 'gemini' ? (
+                              <>
+                                <Sparkles className="w-2.5 h-2.5 text-emerald-600" />
+                                <span>Gemini AI</span>
+                              </>
+                            ) : (
+                              <>
+                                <AlertCircle className="w-2.5 h-2.5 text-amber-600" />
+                                <span>
+                                  Yerel Yedek (
+                                  {msg.fallbackReason === 'timeout'
+                                    ? 'Zaman aşımı'
+                                    : msg.fallbackReason === 'api_error'
+                                    ? 'API hatası'
+                                    : 'Çevrimdışı'}
+                                  )
+                                </span>
+                              </>
+                            )}
+                          </span>
+                        )}
+                        <span>{msg.timestamp}</span>
+                      </div>
                     </div>
 
                     <p className="text-xs sm:text-sm font-sans whitespace-pre-wrap">
@@ -233,11 +272,19 @@ export const SocraticArena: React.FC = () => {
             )}
           </div>
 
+          {errorMsg && (
+            <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+              <span>{errorMsg}</span>
+            </div>
+          )}
+
           {/* Input Box & Actions */}
           <div className="bg-white p-3 rounded-xl border border-stone-200 space-y-3 shadow-xs">
             <div className="flex gap-2">
               <input
                 type="text"
+                maxLength={800}
                 value={inputMessage}
                 onChange={(e) => setInputMessage(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
@@ -253,6 +300,11 @@ export const SocraticArena: React.FC = () => {
                 <Send className="w-3.5 h-3.5" />
               </button>
             </div>
+            {inputMessage.length > 650 && (
+              <div className="text-[11px] text-stone-400 text-right font-mono">
+                {inputMessage.length} / 800 karakter
+              </div>
+            )}
 
             {/* Quick Socratic Sparks */}
             <div className="space-y-1.5 pt-1">
