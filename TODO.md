@@ -10,4 +10,4 @@
 - [x] **Session store ve öğretmen oturumu:** Oturum kodu, TTL, tur ve öğretmen yönetim token’ı ile session store ve oluşturma endpoint’i.
 - [x] **Anonim öğrenci katılımı:** Join URL’si, anonim katılım token’ı ve öğrenci başına tek oy kuralı.
 - [x] **Öğrenci katılım ekranı:** Mobil odaklı soru, seçenek ve gönderim sonucu ekranı.
-- [ ] **Canlı sonuç akışı:** SSE ile öğretmen ekranında sayfa yenilemeden sonuç ve katılımcı sayısı güncellemesi.
+- [x] **Canlı sonuç akışı:** SSE ile öğretmen ekranında sayfa yenilemeden sonuç ve katılımcı sayısı güncellemesi.

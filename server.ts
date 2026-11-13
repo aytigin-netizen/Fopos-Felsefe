@@ -109,6 +109,68 @@ app.post('/api/classroom/sessions/:code/votes', (req: Request, res: Response) =>
   }
 });
 
+const SSE_HEARTBEAT_MS = 20_000;
+
+const readBearerToken = (req: Request) => {
+  const header = req.get('authorization') || '';
+  const match = /^Bearer\s+(\S{1,200})$/i.exec(header);
+  return match ? match[1] : '';
+};
+
+// Öğretmen için canlı sonuç akışı (SSE). Token URL'de değil, Authorization başlığında taşınır.
+app.get('/api/classroom/sessions/:code/events', (req: Request, res: Response) => {
+  let subscription: ReturnType<MemoryClassroomSessionStore['subscribeTeacher']> | null = null;
+  let heartbeat: NodeJS.Timeout | null = null;
+  let expiryTimer: NodeJS.Timeout | null = null;
+  let finished = false;
+
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    if (heartbeat) clearInterval(heartbeat);
+    if (expiryTimer) clearTimeout(expiryTimer);
+    subscription?.unsubscribe();
+    res.end();
+  };
+
+  const send = (event: string, data: unknown) => {
+    if (finished) return;
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+
+  try {
+    subscription = classroomStore.subscribeTeacher(req.params.code, readBearerToken(req), (session) => {
+      send('snapshot', session);
+    });
+  } catch (error) {
+    return sendClassroomError(res, error);
+  }
+
+  res.status(200).set({
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  res.flushHeaders();
+  res.write('retry: 3000\n\n');
+
+  // Bağlanır bağlanmaz mevcut durumu gönder; yeniden bağlanmada istemci durumu böyle tazeler.
+  send('snapshot', subscription.snapshot);
+
+  heartbeat = setInterval(() => {
+    if (!finished) res.write(': ping\n\n');
+  }, SSE_HEARTBEAT_MS);
+
+  expiryTimer = setTimeout(() => {
+    send('closed', { reason: 'SESSION_EXPIRED' });
+    finish();
+  }, Math.max(0, subscription.expiresAt - Date.now()));
+
+  req.on('close', finish);
+  return undefined;
+});
+
 // Initialize Gemini SDK with User-Agent header as required
 const apiKey = process.env.GEMINI_API_KEY;
 let aiClient: GoogleGenAI | null = null;

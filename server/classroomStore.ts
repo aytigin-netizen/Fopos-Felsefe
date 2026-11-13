@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 
 export type ClassroomSessionStatus = 'lobby' | 'voting' | 'paused' | 'closed';
 
@@ -56,6 +56,9 @@ export class ClassroomStoreError extends Error {
 }
 
 const SESSION_TTL_MS = 90 * 60 * 1000;
+const MAX_TEACHER_STREAMS_PER_SESSION = 5;
+
+export type TeacherSessionListener = (session: PublicSession) => void;
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 export const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
@@ -81,6 +84,7 @@ const toPublicRound = (round: ClassroomRound | undefined): PublicRound | null =>
 
 export class MemoryClassroomSessionStore {
   private readonly sessions = new Map<string, ClassroomSession>();
+  private readonly teacherListeners = new Map<string, Set<TeacherSessionListener>>();
 
   createSession(input: { experimentId: string; question: string; options: VotingOption[] }) {
     this.cleanupExpired();
@@ -121,6 +125,61 @@ export class MemoryClassroomSessionStore {
     return this.toStudentSession(this.getSession(code));
   }
 
+  /** Öğretmen token'ını doğrular; yalnızca doğruysa oturumu döndürür. */
+  authorizeTeacher(code: string, teacherToken: string) {
+    const session = this.getSession(code);
+    const expected = Buffer.from(session.teacherTokenHash, 'hex');
+    const actual = Buffer.from(hashToken(teacherToken), 'hex');
+    if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
+      throw new ClassroomStoreError('INVALID_TEACHER_TOKEN', 'Öğretmen yönetim anahtarı geçersiz.', 401);
+    }
+    return session;
+  }
+
+  getTeacherSession(code: string, teacherToken: string): PublicSession {
+    return this.toPublicSession(this.authorizeTeacher(code, teacherToken));
+  }
+
+  /**
+   * Öğretmen ekranı için canlı abonelik. Oy veya katılım değiştiğinde dinleyiciye
+   * güncel (sayımlı) oturum görüntüsü verilir. Dönen fonksiyon aboneliği kaldırır.
+   */
+  subscribeTeacher(code: string, teacherToken: string, listener: TeacherSessionListener) {
+    const session = this.authorizeTeacher(code, teacherToken);
+    let listeners = this.teacherListeners.get(session.code);
+    if (!listeners) {
+      listeners = new Set();
+      this.teacherListeners.set(session.code, listeners);
+    }
+    if (listeners.size >= MAX_TEACHER_STREAMS_PER_SESSION) {
+      throw new ClassroomStoreError('TOO_MANY_STREAMS', 'Bu oturum için çok fazla canlı bağlantı açık.', 429);
+    }
+    listeners.add(listener);
+    return {
+      snapshot: this.toPublicSession(session),
+      expiresAt: session.expiresAt,
+      unsubscribe: () => {
+        const current = this.teacherListeners.get(session.code);
+        if (!current) return;
+        current.delete(listener);
+        if (current.size === 0) this.teacherListeners.delete(session.code);
+      },
+    };
+  }
+
+  private notifyTeachers(session: ClassroomSession) {
+    const listeners = this.teacherListeners.get(session.code);
+    if (!listeners || listeners.size === 0) return;
+    const snapshot = this.toPublicSession(session);
+    for (const listener of listeners) {
+      try {
+        listener(snapshot);
+      } catch (error) {
+        console.error('Teacher listener failed:', error);
+      }
+    }
+  }
+
   joinSession(code: string) {
     const session = this.getSession(code);
     if (session.status === 'closed') {
@@ -129,6 +188,7 @@ export class MemoryClassroomSessionStore {
 
     const participantToken = createToken('student');
     session.participantTokenHashes.add(hashToken(participantToken));
+    this.notifyTeachers(session);
     return { session: this.toStudentSession(session), participantToken };
   }
 
@@ -159,6 +219,7 @@ export class MemoryClassroomSessionStore {
 
     round.voterTokens.add(voterHash);
     round.counts[input.optionId] += 1;
+    this.notifyTeachers(session);
     return { round: { ...toPublicRound(round)!, counts: {} }, session: this.toStudentSession(session) };
   }
 
@@ -204,7 +265,10 @@ export class MemoryClassroomSessionStore {
   private cleanupExpired() {
     const now = Date.now();
     for (const [code, session] of this.sessions) {
-      if (session.expiresAt <= now) this.sessions.delete(code);
+      if (session.expiresAt <= now) {
+        this.sessions.delete(code);
+        this.teacherListeners.delete(code);
+      }
     }
   }
 }

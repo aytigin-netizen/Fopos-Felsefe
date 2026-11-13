@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Maximize, Play, Pause, RotateCcw, Users, ThumbsUp, ThumbsDown, Check, QrCode } from 'lucide-react';
 import QRCode from 'qrcode';
 import { THOUGHT_EXPERIMENTS } from '../data/thoughtExperiments';
+import { useClassroomStream, StreamConnection } from '../hooks/useClassroomStream';
 
 interface ClassroomPresentationModalProps {
   isOpen: boolean;
@@ -21,8 +22,8 @@ export const ClassroomPresentationModal: React.FC<ClassroomPresentationModalProp
   const [selectedExpIdx, setSelectedExpIdx] = useState<number>(0);
   const [timerSeconds, setTimerSeconds] = useState<number>(180); // 3 minutes
   const [timerActive, setTimerActive] = useState<boolean>(false);
-  const [votesA, setVotesA] = useState<number>(14);
-  const [votesB, setVotesB] = useState<number>(11);
+  const [manualVotesA, setManualVotesA] = useState<number>(0);
+  const [manualVotesB, setManualVotesB] = useState<number>(0);
   const [showQR, setShowQR] = useState<boolean>(false);
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [liveSession, setLiveSession] = useState<LiveClassroomSession | null>(null);
@@ -42,6 +43,24 @@ export const ClassroomPresentationModal: React.FC<ClassroomPresentationModalProp
   }, [liveSession?.joinUrl]);
 
   const exp = THOUGHT_EXPERIMENTS[selectedExpIdx];
+
+  const { session: liveState, connection } = useClassroomStream(
+    liveSession?.code,
+    liveSession?.teacherToken,
+  );
+  const liveRound = liveState?.currentRound ?? null;
+  const isLive = Boolean(liveSession && liveRound);
+  const labelA = liveRound?.options[0]?.label ?? '1. Seçenek (Faydacı / Eylem)';
+  const labelB = liveRound?.options[1]?.label ?? '2. Seçenek (Kantçı / İlke)';
+  const votesA = isLive ? liveRound!.counts[liveRound!.options[0].id] ?? 0 : manualVotesA;
+  const votesB = isLive ? liveRound!.counts[liveRound!.options[1].id] ?? 0 : manualVotesB;
+  const connectionLabels: Record<StreamConnection, string> = {
+    idle: '',
+    connecting: 'Bağlanıyor…',
+    live: 'Canlı',
+    reconnecting: 'Yeniden bağlanıyor…',
+    ended: 'Oturum sona erdi',
+  };
 
   const startLiveSession = async () => {
     setSessionLoading(true);
@@ -91,8 +110,8 @@ export const ClassroomPresentationModal: React.FC<ClassroomPresentationModalProp
   };
 
   const totalVotes = votesA + votesB;
-  const percentA = totalVotes > 0 ? Math.round((votesA / totalVotes) * 100) : 50;
-  const percentB = totalVotes > 0 ? 100 - percentA : 50;
+  const percentA = totalVotes > 0 ? Math.round((votesA / totalVotes) * 100) : isLive ? 0 : 50;
+  const percentB = totalVotes > 0 ? 100 - percentA : isLive ? 0 : 50;
 
   return (
     <div className="fixed inset-0 z-50 bg-stone-950/95 backdrop-blur flex flex-col p-4 sm:p-8 text-stone-100 overflow-y-auto">
@@ -114,8 +133,8 @@ export const ClassroomPresentationModal: React.FC<ClassroomPresentationModalProp
               key={item.id}
               onClick={() => {
                 setSelectedExpIdx(idx);
-                setVotesA(12);
-                setVotesB(10);
+                setManualVotesA(0);
+                setManualVotesB(0);
                 setTimerSeconds(180);
                 setTimerActive(false);
               }}
@@ -228,7 +247,25 @@ export const ClassroomPresentationModal: React.FC<ClassroomPresentationModalProp
               <span className="font-bold text-stone-300 flex items-center gap-1.5">
                 <Users className="w-4 h-4 text-amber-400" /> Sınıf Oylaması
               </span>
-              <span className="text-stone-400">Toplam {totalVotes} Öğrenci</span>
+              <span className="flex items-center gap-3 text-stone-400">
+                {liveSession && (
+                  <span
+                    className={`flex items-center gap-1.5 font-semibold ${
+                      connection === 'live' ? 'text-emerald-400' : 'text-amber-300'
+                    }`}
+                    role="status"
+                  >
+                    <span
+                      className={`inline-block h-2 w-2 rounded-full ${
+                        connection === 'live' ? 'bg-emerald-400' : 'bg-amber-300 animate-pulse'
+                      }`}
+                    />
+                    {connectionLabels[connection]}
+                  </span>
+                )}
+                {liveSession && <span>Bağlı: {liveState?.participantCount ?? 0}</span>}
+                <span>Toplam {totalVotes} {isLive ? 'oy' : 'Öğrenci'}</span>
+              </span>
             </div>
 
             {/* Voting Bar */}
@@ -247,28 +284,30 @@ export const ClassroomPresentationModal: React.FC<ClassroomPresentationModalProp
               </div>
             </div>
 
-            {/* Quick Count Adders for Teacher */}
+            {/* Counts: live from students when a session is active, manual hand-count otherwise */}
             <div className="grid grid-cols-2 gap-3 pt-2">
-              <button
-                onClick={() => setVotesA((v) => v + 1)}
-                className="p-3 bg-stone-950 hover:bg-stone-800 rounded-xl border border-stone-700 text-left transition-colors cursor-pointer"
-              >
-                <span className="text-xs text-amber-400 font-bold block mb-0.5">
-                  1. Seçenek (Faydacı / Eylem):
-                </span>
-                <span className="text-lg font-bold font-mono text-white">+{votesA} Oy</span>
-              </button>
-
-              <button
-                onClick={() => setVotesB((v) => v + 1)}
-                className="p-3 bg-stone-950 hover:bg-stone-800 rounded-xl border border-stone-700 text-left transition-colors cursor-pointer"
-              >
-                <span className="text-xs text-stone-400 font-bold block mb-0.5">
-                  2. Seçenek (Kantçı / İlke):
-                </span>
-                <span className="text-lg font-bold font-mono text-white">+{votesB} Oy</span>
-              </button>
+              {[
+                { label: labelA, votes: votesA, accent: 'text-amber-400', add: () => setManualVotesA((v) => v + 1) },
+                { label: labelB, votes: votesB, accent: 'text-stone-400', add: () => setManualVotesB((v) => v + 1) },
+              ].map((item) => (
+                <button
+                  key={item.label}
+                  onClick={item.add}
+                  disabled={isLive}
+                  className="p-3 bg-stone-950 enabled:hover:bg-stone-800 rounded-xl border border-stone-700 text-left transition-colors enabled:cursor-pointer disabled:cursor-default"
+                >
+                  <span className={`text-xs ${item.accent} font-bold block mb-0.5`}>{item.label}:</span>
+                  <span className="text-lg font-bold font-mono text-white">
+                    {isLive ? item.votes : `+${item.votes}`} Oy
+                  </span>
+                </button>
+              ))}
             </div>
+            {!liveSession && (
+              <p className="text-[11px] text-stone-500">
+                Elle sayım modu. Gerçek oturumu başlatırsanız öğrenci oyları burada canlı görünür.
+              </p>
+            )}
           </div>
 
           {/* Group Discussion Countdown Timer */}
